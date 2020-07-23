@@ -1,0 +1,401 @@
+Tests of the efficiency of various fMRI designs
+===============================================
+
+Time-stamp: <2013-01-08 17:06 christophe@pallier.org>
+
+We present some simulations comparing the power of designs with fixed ISI to designs with varying ISI. We are interested in the estimates of a linear contrast and of the main effects of each condition versus the baseline. 
+
+```{r initialisation, echo=FALSE, results=FALSE}
+rm(list=ls())
+require(MASS) # for 'ginv'
+
+# misc. useful functions
+
+ihrf <- scan('hrf.dat') # hrf sampled at 10Hz
+
+dirac.comb <- function(onsets, durations, total.duration, sampling.rate=10)
+  # given vectors 'onsets' and 'durations' in secs, generate an indicator variable
+  # sampled at 10Hz
+{
+  stopifnot((length(onsets)==length(durations)) | (length(durations)==1))
+  if (length(durations)==1) durations<-rep(durations, length(onsets))
+  onsets <- ifelse(onsets<0, 0, onsets)
+  size <- (total.duration)*sampling.rate
+  u <- numeric(size)
+  for (i in 1:length(onsets)) 
+  {
+    i1 <- round(sampling.rate*onsets[i])
+    i2 <- round(sampling.rate*(onsets[i]+durations[i]))
+    i1 <- min(i1, size)
+    i2 <- min(i2, size)
+    u[i1:i2] <- 1.0
+  }
+  u[1:size]
+}
+
+hrf <- function(onsets, durations, total.duration, TR=1)
+  # convolution of a time series (defined by onsets & durations of 'boxcar' events) by impulse hrf
+{
+  stopifnot(TR==1) # undersampling not yet implemented
+  if (!exists("ihrf")) 
+    ihrf <- scan('hrf.dat') # hrf sampled at 10Hz
+  x2 <- c(rep(0, length(ihrf)), dirac.comb(onsets, durations, total.duration))
+  x3 <- stats::filter(x2, ihrf, sides=1)
+  x4 <- x3[-(1:length(ihrf))]
+  x4 # here we should do some undersampling if TR>1
+}
+
+generate_paradigm_fixed_SOA <- function(ncond, trialpercond,  stimduration, SOA, totalduration)
+  # stimduration and SOA in seconds
+  {
+  ntrials <- ncond * trialpercond
+  conditions <- sample(rep(1:ncond,trialpercond))
+  onsets <- (1:ntrials-1)*SOA
+  durations <- rep(stimduration, ntrials)
+  timing <- data.frame(onsets, conditions, durations)
+  timing
+  }
+
+generate_paradigm_fixed_SOA_adding_silences <- function(ncond, trialpercond,  stimduration, SOA, totalduration0)
+  {
+  # we simply add one more condition
+    timing <- generate_paradigm_fixed_SOA(ncond+1, trialpercond, stimduration, SOA, totalduration0+ trialpercond*SOA)
+  # and delete it  
+    timing <- subset(timing, conditions != ncond+1)
+    timing
+    }
+
+generate_paradigm_varying_SOA <- function(ncond, trialpercond,  stimduration, SOA, totalduration)
+  {
+  timing <- generate_paradigm_fixed_SOA(ncond, trialpercond, stimduration, SOA, totalduration)
+  ntrials <- nrow(timing)
+  # introducing some random jittering
+  timing$onsets <- abs(timing$onsets+runif(ntrials, min=-jitter/2, max=jitter/2))
+  timing
+  }
+
+generate_paradigm_varying_SOA_null_events  <- function(ncond, trialpercond,  stimduration, SOA, totalduration)
+  {
+# insert silences
+    totalsilence <- trialpercond*SOA
+    totalduration <- totalduration0+totalsilence
+    ntrials <- ncond*trialpercond   
+    silences <- runif(ntrials, 0.2,1.8) * (totalsilence / ntrials)
+    silences <- silences * (totalsilence/sum(silences))
+    timing$onsets <- timing$onsets+cumsum(silences)
+    timing
+  }
+
+create_design_matrix <- function(timing, totalduration)
+  {
+  condnames <- sort(unique(timing$conditions))
+  ncond <- length(condnames)
+  regressor <- list()
+  for (cond in 1:ncond)
+    {
+    select <- timing$conditions==condnames[cond]
+    regressor[[cond]] <- scale(hrf(timing$onsets[select],
+                                   timing$durations[select],
+                                   totalduration), 
+                               center=TRUE,
+                               scale=FALSE)
+    }
+  names(regressor) <- condnames
+  as.matrix(as.data.frame(regressor))
+  }
+```
+
+We will use the following function (from Dale, 1999).
+
+``` {r efficiency}
+efficiency <- function(contrast, designMat)
+  # returns the efficiency of a contrast for a given design 
+  # according to Henson (2007), formula 15.4 (from Dale, 1999)
+  {
+  sum(diag(ginv(t(contrast) %*% ginv(crossprod(designMat)) %*% contrast)))
+  }
+```
+
+We can generate paradigms with a fixed SOA...
+
+```{r fig.width=7, fig.height=6}
+ncond <- 5
+trialpercond <- 20
+stimduration <- 6
+SOA <- 10
+(totalduration <- (ncond * trialpercond * SOA) + SOA)
+
+timing <- generate_paradigm_fixed_SOA(ncond, trialpercond, stimduration, SOA, totalduration)
+
+head(timing)
+```
+
+...and build the design matrix
+
+```{r generateDesignMat, fig.width=7, fig.height=6}
+X <- create_design_matrix(timing, totalduration)
+npoints <-nrow(X)
+
+par(mfrow=c(2,1))
+with(timing,
+     plot(onsets,rep(1,nrow(timing)), col=conditions,
+          type='h', ylim=c(0,1.5), ylab='', xlab='Time',main="conditions")
+     )
+matplot(1:nrow(X),X,type='l',col=1:ncond)
+```
+
+
+Remark: the TR is 1sec.
+
+Simulations and Estimation by an hrf model. 
+------------------------------------------
+
+We simulate a voxel where the signal increases in a linear fashion with 'condition' (amplitudes=1:5).
+
+```{r simul_fixed_SOA}
+nsim <- 100 # number of simulations
+betas <- 1:ncond # theoretical amplitudes (per condition)
+
+con <- betas-mean(betas) # contrast of interest
+con %*% betas # value of the contrast to be estimated
+
+estimates <- matrix(nrow=nsim, ncol=ncond) 
+conestimates <- numeric(nsim)
+eff <- numeric(nsim)
+beta1eff <- numeric(nsim)
+
+for (sim in 1:nsim)
+{
+    timing <- generate_paradigm_fixed_SOA(ncond, trialpercond, stimduration, SOA, totalduration)
+    X <- create_design_matrix(timing, totalduration)
+    eff[sim] <- efficiency(con, X)
+    beta1eff[sim] <- efficiency(c(1,rep(0,length(betas)-1)),X)    
+    y0 <- X %*% betas 
+    noise <- 5*scale(rnorm(npoints))
+    y <- y0 + noise
+    estimates[sim,] <- coef(lm(y ~ X))[-1]
+    conestimates[sim] <- con %*% estimates[sim,]
+}
+```
+
+```{r plots, fig.width=7, fig.height=6}
+par(mfrow=c(2,2))
+# distributions of estimates of individual betas
+boxplot(estimates, main='estimates of the betas')
+grid()
+boxplot(beta1eff, main='efficiency for beta1')
+grid()
+
+# distribution of estimate of the contrasts
+boxplot(conestimates, main='estimates of the contrast')
+grid()
+boxplot(eff, main='efficiency for linear contrast')
+grid()
+
+```
+
+The average standard deviation of the estimates of the betas is:
+
+```{r}
+mean(apply(estimates,2,sd))
+```
+
+Remark that the variability in the estimates depends: (a) on the variability of the design matrices and (b) on the noise. 
+
+
+New design, with jitter between trials:
+--------------------------------------
+
+Now, we jitter the SOA between trials and run a similar simulation.
+
+```{r}
+timing <- generate_paradigm_fixed_SOA(ncond, trialpercond, stimduration, SOA, totalduration)
+ntrials <- nrow(timing)
+jitter <- 4
+timing$onsets <- abs(timing$onsets+runif(ntrials,min=-jitter/2, max=jitter/2))
+head(timing)
+par(mfcol=c(1,1))
+hist(diff(timing$onsets, main='Distribution of SOAs'))
+```
+
+```{r generateDesignMat}
+```
+
+```{r simul_varying_SOA, fig.width=7, fig.height=6}
+nsim <- 100 # number of simulations
+betas <- 1:ncond # theoretical amplitudes (per condition)
+con <- betas - mean(betas)
+con %*% betas # value of the contrast to be estimated
+
+estimates <- matrix(nrow=nsim, ncol=ncond) 
+eff <- numeric(nsim)
+for (sim in 1:nsim)
+{
+    timing <- generate_paradigm_fixed_SOA(ncond, trialpercond, stimduration, SOA, totalduration)
+    ntrials <- nrow(timing)
+    # introducing some random jittering
+    timing$onsets <- abs(timing$onsets+runif(ntrials, min=-jitter/2, max=jitter/2))
+    X <- create_design_matrix(timing, totalduration)
+    eff[sim] <- efficiency(con, X)
+    beta1eff[sim] <- efficiency(c(1,rep(0,length(betas)-1)),X)  
+    y0 <- X %*% betas 
+    noise <- 5*scale(rnorm(npoints))
+    y <- y0 + noise
+    estimates[sim,] <- coef(lm(y ~ X))[-1]
+}
+```
+
+```{r, fig.width=7, fig.height=6}
+par(mfrow=c(2,2))
+# distributions of estimates of individual betas
+boxplot(estimates, main='estimates of the betas')
+grid()
+boxplot(beta1eff, main='efficiency for beta1')
+grid()
+
+# distribution of estimate of the contrasts
+boxplot(conestimates, main='estimates of the contrast')
+grid()
+boxplot(eff, main='efficiency for linear contrast')
+grid()
+
+```
+
+The average standard deviation of the estimates of the betas is:
+
+```{r}
+mean(apply(estimates,2,sd))
+```
+
+
+First conclusion
+----------------
+
+The efficiency for the linear contrast is about the same for the two types of design, but individual betas are better estimated with jittering. But we have not included null events yet.  
+
+Simulations with 'explicit' NULL events
+---------------------------------------
+
+Coming back to the fixed SOA schedule, we now add a sixth condition, consisting of silent trials of the same duration as the 'real' trials.
+
+```{r simul_fixed_SOA_silence}
+ncond <- 6
+trialpercond <- 20
+stimduration <- 6
+SOA <- 10
+totalduration <- (ncond * trialpercond * SOA) + SOA
+
+
+nsim <- 100 # number of simulations
+betas <- c(1:5,0)  # theoretical amplitudes (per condition)
+
+con <- c((1:5)-mean(1:5),0)  # contrast of interest
+con %*% betas # value of the contrast to be estimated
+
+estimates <- matrix(nrow=nsim, ncol=ncond) 
+conestimates <- numeric(nsim)
+eff <- numeric(nsim)
+beta1eff <- numeric(nsim)
+
+for (sim in 1:nsim)
+{
+    timing <- generate_paradigm_fixed_SOA(ncond, trialpercond, stimduration, SOA, totalduration)
+    X <- create_design_matrix(timing, totalduration)
+    eff[sim] <- efficiency(con, X)
+    beta1eff[sim] <- efficiency(c(1,rep(0,length(betas)-1)),X)    
+    y0 <- X %*% betas 
+    noise <- 5*scale(rnorm(length(y0)))
+    y <- y0 + noise
+    estimates[sim,] <- coef(lm(y ~ X))[-1]
+    conestimates[sim] <- con %*% estimates[sim,]
+}
+```
+
+```{r, fig.width=7, fig.height=6}
+par(mfrow=c(2,2))
+# distributions of estimates of individual betas
+boxplot(estimates, main='estimates of the betas')
+grid()
+boxplot(beta1eff, main='efficiency for beta1')
+grid()
+
+# distribution of estimate of the contrasts
+boxplot(conestimates, main='estimates of the contrast')
+grid()
+boxplot(eff, main='efficiency for linear contrast')
+grid()
+
+```
+
+The average standard deviation of the estimates of the betas is:
+
+```{r}
+mean(apply(estimates,2,sd))
+```
+
+
+And now, the same total amount of silence is inserted as NULL events of varying length between the 'real' trials, introducing jitter.
+
+```{r}
+ncond <- 5
+trialpercond <- 20
+stimduration <- 6
+SOA <- 10
+totalduration0 <- (ncond * trialpercond * SOA) + SOA
+
+betas <- 1:ncond
+con <- betas-mean(betas) # contrast of interest
+con %*% betas # value of the contrast to be estimated
+
+nsim <- 100
+estimates <- matrix(nrow=nsim, ncol=ncond) 
+conestimates <- numeric(nsim)
+eff <- numeric(nsim)
+beta1eff <- numeric(nsim)
+
+for (sim in 1:nsim)
+{
+    timing <- generate_paradigm_fixed_SOA(ncond, trialpercond, stimduration, SOA, totalduration0)
+# insert silences
+    totalsilence <- trialpercond*SOA
+    totalduration <- totalduration0+totalsilence
+    ntrials <- ncond*trialpercond   
+    silences <- runif(ntrials, 0.2,1.8) * (totalsilence / ntrials)
+    silences <- silences * (totalsilence/sum(silences))
+    timing$onsets <- timing$onsets+cumsum(silences)
+      
+    X <- create_design_matrix(timing, totalduration)
+    eff[sim] <- efficiency(con, X)
+    beta1eff[sim] <- efficiency(c(1,rep(0,length(betas)-1)),X)    
+    y0 <- X %*% betas 
+    noise <- 5*scale(rnorm(length(y0)))
+    y <- y0 + noise
+    estimates[sim,] <- coef(lm(y ~ X))[-1]
+    conestimates[sim] <- con %*% estimates[sim,]
+}
+```
+
+```{r simul_varying_SOA_with_NULL_events, fig.width=7, fig.height=6}
+par(mfrow=c(2,2))
+# distributions of estimates of individual betas
+boxplot(estimates, main='estimates of the betas')
+grid()
+boxplot(beta1eff, main='efficiency for beta1')
+grid()
+mean(apply(estimates,2,sd))
+
+# distribution of estimate of the contrasts
+boxplot(conestimates, main='estimates of the contrast')
+grid()
+boxplot(eff, main='efficiency for linear contrast')
+grid()
+
+```
+
+Conclusions
+-----------
+
+For the linear contrast, the two two types of designs provide similar power. For the estimation of the betas, the paradigms with varying ISI perform better.
+
+However, our simulations looked at the general behavior of the paradigm types. We can select the best schedules from a class of paradigm.
+

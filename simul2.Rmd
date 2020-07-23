@@ -1,0 +1,206 @@
+Tests of the efficiency of various fMRI designs
+===============================================
+
+Time-stamp: <2013-01-04 10:36:13 pallier>
+
+```{r initialisation, echo=FALSE, results=FALSE}
+rm(list=ls())
+source('hrf_utils.R')
+
+generate_paradigm_fixed_SOA <- function(ncond, trialpercond,  stimduration, SOA, totalduration)
+  # stimduration and SOA in seconds
+  {
+  ntrials <- ncond * trialpercond
+  conditions <- sample(rep(1:ncond,trialpercond))
+  onsets <- (1:ntrials-1)*SOA
+  durations <- rep(stimduration, ntrials)
+  timing <- data.frame(onsets, conditions, durations)
+  }
+
+create_design_matrix <- function(timing, totalduration)
+  {
+  condnames <- sort(unique(timing$conditions))
+  ncond <- length(condnames)
+  
+  regressor <- list()
+  for (cond in 1:ncond)
+    {
+    select <- timing$conditions==condnames[cond]
+    regressor[[cond]] <- scale(hrf(timing$onsets[select],
+                                   timing$durations[select],
+                                   totalduration), 
+                               center=TRUE,
+                               scale=FALSE)
+    }
+  
+  names(regressor) <- condnames
+  as.matrix(as.data.frame(regressor))
+  }
+
+efficiency <- function(contrast, designMat)
+  # returns the efficiency of a contrast for a given design 
+  # according to Henson (2007), formula 15.4 (from Dale, 1999)
+  {
+  sum(diag(ginv(t(contrast) %*% ginv(crossprod(designMat)) %*% contrast)))
+  }
+
+### This is the way SPM does high pass filtering, if I am correct.
+dct.matrix <- function(dim,order,samples=NULL)
+  # returns a matrix for the first few basis functions of a one
+  # dimensional discrete cosine transform.
+  # (inspired from spm_dctmtx.m)
+  {
+    if (is.null(samples)) n <- 2*(0:(dim-1))+1
+    else n <- 2*(samples-1)+1
+    k <- 2:order-1
+    cbind(1/sqrt(dim),
+          sqrt(2/dim) * cos(pi*outer(n,k)/(2*dim)))
+  }
+
+make.hpfilter <- function(dim, sample.rate, cutoff)
+  {
+    order <- floor(1+2*dim/(sample.rate*cutoff))
+    dct.matrix(dim,order)[,-1]
+  }
+
+apply.hpfilter <- function(y,F) { y - F %*% (t(F) %*% y) }
+
+```
+
+We have defined a function that creates paradigms with a fixed SOA.
+
+```{r fig.width=7, fig.height=6}
+ncond <- 2
+trialpercond <- 50
+stimduration <- 2
+SOA <- 5
+totalduration <- (ncond * trialpercond * SOA) + SOA
+
+timing <- generate_paradigm_fixed_SOA(ncond, trialpercond, stimduration, SOA, totalduration)
+head(timing)
+with(timing,
+     plot(onsets,rep(1,nrow(timing)), col=conditions,
+          type='h', ylim=c(0,1.5), ylab='', xlab='Time',main="conditions")
+     )
+```
+
+Now, we build the design matrix and plot it (remark: the TR is 1sec).
+
+```{r generateDesignMat, fig.width=7, fig.height=6}
+X <- create_design_matrix(timing, totalduration)
+npoints <-nrow(X)
+matplot(1:nrow(X),X,type='l',col=1:ncond)
+```
+
+
+Simulations and Estimation by an hrf model. 
+------------------------------------------
+
+We simulate a voxel where the signal increases in a linear fashion with 'cond' (amplitudes=1:5)
+
+```{r simul_fixed_SOA, fig.width=7, fig.height=6}
+
+# generate one noise time series in 1/f, high-pass filtered
+#fmri.noise <- pink.noise(npoints)
+#K <- make.hpfilter(npoints,1,60)
+#s <- apply.hpfilter(fmri.noise,K)
+
+noise <- 10*scale(rnorm(npoints))
+
+nsim <- 100 # number of simulations
+betas <- 1:ncond # theoretical amplitudes (per condition)
+con <- betas-mean(betas) # contrast of interest
+estimates <- matrix(nrow=nsim, ncol=ncond) 
+conestimates <- numeric(nsim)
+eff <- numeric(nsim)
+
+for (sim in 1:nsim)
+{
+    timing <- generate_paradigm_fixed_SOA(ncond, trialpercond, stimduration, SOA, totalduration)
+    X <- create_design_matrix(timing, totalduration)
+    eff[sim] <- efficiency(con, X)
+    
+    y0 <- X %*% betas 
+#    noise <- 10*scale(rnorm(npoints))
+    y <- y0 + noise
+    estimates[sim,] <- coef(lm(y ~ X))[-1]
+    conestimates[sim] <- con %*% estimates[sim,]
+}
+
+# plot the signal from the last stimulation (theoretical signal+noise)
+plot(y, col='black')
+lines(y0, col='red' )
+
+# distributions of estimates of individual betas
+boxplot(estimates, main='estimates of the betas')
+grid()
+
+# distribution of estimate of the contrasts
+boxplot(conestimates, main='estimates of the contrast')
+
+
+# average of standards errors:
+mean(apply(estimates,2,sd))
+#es <- data.frame(estimates=apply(estimates,2,mean),sd=apply(estimates,2,sd))
+#es
+#plot(1:nrow(es), es[,1], pch=16, col='black',ylim=c(0,6))
+#segments(1:nrow(es), es[,1]-es[,2], 1:nrow(es), es[,1]+es[,2])
+
+boxplot(eff, main='efficiencies')
+```
+
+New design, with jitter between trials:
+--------------------------------------
+
+Now, we jitter the SOA between trials and run a similar simulation (with the same noise).
+
+```{r }
+timing <- generate_paradigm_fixed_SOA(ncond, trialpercond, stimduration, SOA, totalduration)
+ntrials <- nrow(timing)
+jitter <- 4
+timing$onsets <- abs(timing$onsets+runif(ntrials,min=-jitter/2, max=jitter/2))
+
+plot(timing$onsets, rep(1,ntrials), col=timing$conditions, type='h', ylim=c(0,1.5), ylab='')
+hist(diff(timing$onsets))
+head(timing)
+```
+
+```{r generateDesignMat}
+```
+
+```{r simul_varying_SOA, fig.width=7, fig.height=6}
+nsim <- 100 # number of simulations
+betas <- 1:ncond # theoretical amplitudes (per condition)
+con <- betas - mean(betas)
+estimates <- matrix(nrow=nsim, ncol=ncond) 
+eff <- numeric(nsim)
+for (sim in 1:nsim)
+{
+    timing <- generate_paradigm_fixed_SOA(ncond, trialpercond, stimduration, SOA, totalduration)
+    ntrials <- nrow(timing)
+    timing$onsets <- abs(timing$onsets+runif(ntrials, min=-jitter/2, max=jitter/2))
+    X <- create_design_matrix(timing, totalduration)
+    eff[sim] <- efficiency(con, X)
+
+    y0 <- 10 + X %*% betas 
+    y <- y0 + noise
+    estimates[sim,] <- coef(lm(y ~ X))[-1]
+}
+
+# plot the signal from the last stimulation (theoretical signal+noise)
+plot(y, col='black')
+lines(y0, col='red' )
+
+# distributions of estimates
+boxplot(estimates, main='estimates')
+
+# average of standards errors:
+mean(apply(estimates,2,sd))
+#es <- data.frame(estimates=apply(estimates,2,mean),sd=apply(estimates,2,sd))
+#es
+#plot(1:nrow(es), es[,1], pch=16, col='black',ylim=c(0,6))
+#segments(1:nrow(es), es[,1]-es[,2], 1:nrow(es), es[,1]+es[,2])
+boxplot(eff, main="Efficiencies")
+```
+
+

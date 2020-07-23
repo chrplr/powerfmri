@@ -1,0 +1,103 @@
+Tests of the efficiency of various fMRI designs
+===============================================
+
+Time-stamp: <2013-01-04 10:22:32 pallier>
+
+```{r, echo=FALSE, results=FALSE}
+rm(list=ls())
+source('hrf_utils.R')
+```
+
+First, we generate a paradigm with a fixed SOA.
+
+```{r fig.width=7, fig.height=6}
+ncond <- 5
+trialpercond <- 10
+ntrials <- ncond * trialpercond
+conditions <- sample(rep(1:ncond,trialpercond))
+
+SOA <- 10 # in seconds
+onsets <- (1:ntrials-1)*SOA
+
+stimduration <-  6 # in seconds
+durations <- rep(stimduration, ntrials)
+totalduration <- max(onsets)+20
+
+plot(onsets,rep(1,ntrials),col=conditions,type='h',ylim=c(0,1.5),ylab='')
+timing <- data.frame(onsets,conditions, durations)
+#write.csv(timing, 'timing.csv')
+head(timing)
+```
+
+Reading timing information from the csv file, we build and plot the design matrix
+
+```{r generateDesignMat, fig.width=7, fig.height=6}
+#timing <- read.csv('timing.csv')
+condnames <- sort(unique(timing$conditions))
+ncond <- length(condnames)
+
+regressor <- vector("list", ncond)
+for (cond in 1:ncond)
+{
+ select <- timing$conditions==condnames[cond]
+ print(cond)
+ print(timing$onsets[select])
+ regressor[[cond]] <- hrf(list(onsets=timing$onsets[select],
+                            durations=timing$durations[select]),
+                       totalduration)
+}
+
+names(regressor) <- condnames
+X <- as.matrix(as.data.frame(regressor))
+npoints <-nrow(X)
+matplot(1:nrow(X),X,type='l',col=1:ncond)
+```
+
+
+
+Simulations and Estimation by an hrf model. 
+------------------------------------------
+
+We simulate a voxel where the signal increase in a linear fashion with 'cond' (1:5)
+
+```{r simul, fig.width=7, fig.height=6}
+betas <- 1:ncond
+y0 <- 10 + X %*% betas 
+nsim <- 100
+estimates <- matrix(nrow=nsim, ncol=ncond)
+for (sim in 1:nsim)
+{
+    fmri.noise <- pink.noise(npoints)
+    y <- y0 + 20*fmri.noise
+    estimates[sim,] <- coef(lm(y ~ X))[-1]
+}
+plot(y, col='black')
+lines(y0, col='red' )
+es <- data.frame(estimates=apply(estimates,2,mean),sd=apply(estimates,2,sd))
+es
+plot(1:nrow(es), es[,1], pch=16, col='black',ylim=c(0,6))
+segments(1:nrow(es), es[,1]-es[,2], 1:nrow(es), es[,1]+es[,2])
+```
+
+New design, with jitter between trials:
+--------------------------------------
+
+```{r }
+SOA <- 10 # in seconds
+onsets <- (1:ntrials-1)*SOA+runif(ntrials,min=-2,max=2)
+
+stimduration <-  6 # in seconds
+durations <- rep(stimduration, ntrials)
+totalduration <- max(onsets)+20
+
+plot(onsets,rep(1,ntrials),col=conditions,type='h',ylim=c(0,1.5),ylab='')
+hist(diff(onsets))
+timing <- data.frame(onsets,conditions, durations)
+head(timing)
+```
+
+```{r generateDesignMat}
+```
+
+```{r simul}
+```

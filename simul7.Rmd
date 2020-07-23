@@ -1,0 +1,367 @@
+Tests of the efficiency of various fMRI designs
+===============================================
+
+Time-stamp: <2013-01-08 17:06 christophe@pallier.org>
+
+Note: This document is generated from the source file [simul6.Rmd](simul6.Rmd), a Rmarkdown document that can be processed with knitr and edited with rstudio.
+
+We present some simulations comparing the power of designs with fixed ISI to designs with varying ISI. We are interested in how precise are the estimates of the parameters associated to each condition.
+
+
+```{r initialisation, echo=FALSE, results=FALSE}
+rm(list=ls())
+require(MASS) # for 'ginv'
+
+# hrf sampled at 10Hz
+
+ihrf <- c(0.000000e+00, 9.047213e-09, 2.619602e-07, 1.799957e-06, 6.863196e-06, 1.895165e-05, 4.267012e-05, 8.345038e-05, 1.472172e-04, 2.400445e-04,
+ 3.678322e-04, 5.360234e-04, 7.493714e-04, 1.011762e-03, 1.326087e-03, 1.694177e-03, 2.116767e-03, 2.593512e-03, 3.123034e-03, 3.702992e-03,
+ 4.330173e-03, 5.000602e-03, 5.709654e-03, 6.452175e-03, 7.222602e-03, 8.015083e-03, 8.823589e-03, 9.642016e-03, 1.046429e-02, 1.128444e-02,
+ 1.209669e-02, 1.289553e-02, 1.367575e-02, 1.443249e-02, 1.516129e-02, 1.585813e-02, 1.651940e-02, 1.714194e-02, 1.772307e-02, 1.826053e-02,
+ 1.875251e-02, 1.919761e-02, 1.959488e-02, 1.994371e-02, 2.024388e-02, 2.049553e-02, 2.069906e-02, 2.085521e-02, 2.096495e-02, 2.102949e-02,
+ 2.105024e-02, 2.102879e-02, 2.096687e-02, 2.086636e-02, 2.072921e-02, 2.055747e-02, 2.035325e-02, 2.011868e-02, 1.985592e-02, 1.956713e-02,
+ 1.925448e-02, 1.892008e-02, 1.856603e-02, 1.819437e-02, 1.780709e-02, 1.740611e-02, 1.699329e-02, 1.657039e-02, 1.613912e-02, 1.570109e-02,
+ 1.525783e-02, 1.481077e-02, 1.436126e-02, 1.391057e-02, 1.345986e-02, 1.301024e-02, 1.256270e-02, 1.211815e-02, 1.167745e-02, 1.124134e-02,
+ 1.081053e-02, 1.038562e-02, 9.967169e-03, 9.555648e-03, 9.151483e-03, 8.755037e-03, 8.366620e-03, 7.986491e-03, 7.614860e-03, 7.251896e-03,
+ 6.897727e-03, 6.552442e-03, 6.216099e-03, 5.888722e-03, 5.570311e-03, 5.260837e-03, 4.960251e-03, 4.668483e-03, 4.385446e-03, 4.111036e-03,
+ 3.845138e-03, 3.587624e-03, 3.338356e-03, 3.097189e-03, 2.863970e-03, 2.638544e-03, 2.420748e-03, 2.210420e-03, 2.007392e-03, 1.811500e-03,
+ 1.622576e-03, 1.440454e-03, 1.264970e-03, 1.095960e-03, 9.332646e-04, 7.767248e-04, 6.261857e-04, 4.814951e-04, 3.425042e-04, 2.090677e-04,
+ 8.104384e-05, -4.170560e-05, -1.593151e-04, -2.719157e-04, -3.796347e-04, -4.825961e-04, -5.809203e-04, -6.747246e-04, -7.641231e-04, -8.492267e-04,
+-9.301436e-04, -1.006979e-03, -1.079836e-03, -1.148815e-03, -1.214013e-03, -1.275527e-03, -1.333451e-03, -1.387875e-03, -1.438891e-03, -1.486588e-03,
+-1.531052e-03, -1.572368e-03, -1.610622e-03, -1.645897e-03, -1.678275e-03, -1.707837e-03, -1.734664e-03, -1.758834e-03, -1.780427e-03, -1.799520e-03,
+-1.816190e-03, -1.830513e-03, -1.842567e-03, -1.852424e-03, -1.860160e-03, -1.865849e-03, -1.869562e-03, -1.871374e-03, -1.871355e-03, -1.869577e-03,
+-1.866109e-03, -1.861022e-03, -1.854384e-03, -1.846262e-03, -1.836725e-03, -1.825838e-03, -1.813666e-03, -1.800275e-03, -1.785727e-03, -1.770085e-03,
+-1.753410e-03, -1.735763e-03, -1.717202e-03, -1.697786e-03, -1.677571e-03, -1.656613e-03, -1.634967e-03, -1.612684e-03, -1.589818e-03, -1.566418e-03,
+-1.542534e-03, -1.518214e-03, -1.493502e-03, -1.468445e-03, -1.443087e-03, -1.417468e-03, -1.391630e-03, -1.365612e-03, -1.339451e-03, -1.313185e-03,
+-1.286848e-03, -1.260473e-03, -1.234093e-03, -1.207738e-03, -1.181438e-03, -1.155220e-03, -1.129111e-03, -1.103136e-03, -1.077320e-03, -1.051684e-03,
+-1.026250e-03, -1.001037e-03, -9.760655e-04, -9.513519e-04, -9.269128e-04, -9.027635e-04, -8.789179e-04, -8.553891e-04, -8.321891e-04, -8.093287e-04,
+-7.868178e-04, -7.646654e-04, -7.428794e-04, -7.214670e-04, -7.004342e-04, -6.797867e-04, -6.595288e-04, -6.396644e-04, -6.201966e-04, -6.011278e-04,
+-5.824596e-04, -5.641931e-04, -5.463287e-04, -5.288664e-04, -5.118053e-04, -4.951443e-04, -4.788817e-04, -4.630154e-04, -4.475427e-04, -4.324607e-04,
+-4.177660e-04, -4.034549e-04, -3.895232e-04, -3.759668e-04, -3.627809e-04, -3.499605e-04, -3.375008e-04, -3.253962e-04, -3.136412e-04, -3.022302e-04,
+-2.911572e-04, -2.804164e-04, -2.700016e-04, -2.599065e-04, -2.501249e-04, -2.406504e-04, -2.314765e-04, -2.225969e-04, -2.140050e-04, -2.056943e-04,
+-1.976582e-04, -1.898903e-04, -1.823840e-04, -1.751329e-04, -1.681305e-04, -1.613703e-04, -1.548462e-04, -1.485516e-04, -1.424804e-04, -1.366265e-04,
+-1.309837e-04, -1.255459e-04, -1.203074e-04, -1.152621e-04, -1.104044e-04, -1.057287e-04, -1.012292e-04, -9.690064e-05, -9.273760e-05, -8.873483e-05,
+-8.488719e-05, -8.118964e-05, -7.763725e-05, -7.422522e-05, -7.094883e-05, -6.780348e-05, -6.478470e-05, -6.188811e-05, -5.910946e-05, -5.644458e-05,
+-5.388945e-05, -5.144012e-05, -4.909278e-05, -4.684370e-05, -4.468927e-05, -4.262599e-05, -4.065045e-05, -3.875936e-05, -3.694950e-05, -3.521777e-05,
+-3.356117e-05, -3.197679e-05, -3.046180e-05, -2.901347e-05, -2.762918e-05, -2.630636e-05, -2.504256e-05, -2.383538e-05, -2.268254e-05, -2.158180e-05,
+-2.053104e-05, -1.952817e-05, -1.857122e-05, -1.765825e-05, -1.678742e-05, -1.595695e-05, -1.516511e-05, -1.441025e-05, -1.369079e-05, -1.300519e-05,
+-1.235198e-05, -1.172974e-05, -1.113713e-05, -1.057282e-05, -1.003557e-05, -9.524172e-06, -9.037466e-06, -8.574342e-06, -8.133736e-06, -7.714626e-06,
+-7.316033e-06)
+
+
+# misc. useful functions
+
+dirac.comb <- function(onsets, durations, total.duration, sampling.rate=10)
+  # given vectors 'onsets' and 'durations' in secs, generate an indicator variable
+  # sampled at 10Hz
+{
+  stopifnot((length(onsets)==length(durations)) | (length(durations)==1))
+  if (length(durations)==1) 
+    durations <- rep(durations, length(onsets))
+  onsets <- ifelse(onsets<0, 0, onsets) # does not handle negative onsets
+  size <- (total.duration) * sampling.rate
+  u <- numeric(size)
+  for (i in 1:length(onsets)) 
+  {
+    i1 <- round(sampling.rate*onsets[i])
+    i2 <- round(sampling.rate*(onsets[i]+durations[i]))
+    i1 <- min(i1, size)
+    i2 <- min(i2, size)
+    u[i1:i2] <- 1.0
+  }
+  u[1:size]
+}
+
+plot_paradigm <- function(timing)
+  {
+       plot(timing$onsets, 
+            rep(1,nrow(timing)), 
+            col=timing$conditions,
+            type='h', 
+            ylim=c(0,1.5), 
+            ylab='', 
+            xlab='Time',
+            main="conditions")
+  }
+
+hrf <- function(onsets, durations, total.duration, TR=1)
+  # convolution of a time series (defined by onsets & durations of 'boxcar' events) by impulse hrf
+{
+  stopifnot(TR==1) # undersampling not yet implemented
+  if (!exists("ihrf")) 
+    ihrf <- scan('hrf.dat') # hrf sampled at 10Hz
+  x2 <- c(rep(0, length(ihrf)), dirac.comb(onsets, durations, total.duration))
+  x3 <- stats::filter(x2, ihrf, sides=1)
+  x4 <- x3[-(1:length(ihrf))]
+  x4 # here we should do some undersampling if TR>1
+}
+
+create_design_matrix <- function(timing, totalduration)
+# timing must be a data.frame with columns 'conditions', 'onsets', and 'durations' 
+  {
+  stopifnot(is.data.frame(timing))
+  condnames <- sort(unique(timing$conditions))
+  ncond <- length(condnames)
+  regressors <- list()
+  for (cond in 1:ncond)
+    {
+    select <- timing$conditions==condnames[cond]
+    regressors[[cond]] <- scale(hrf(timing$onsets[select],
+                                   timing$durations[select],
+                                   totalduration), 
+                               center=TRUE,
+                               scale=FALSE)
+    }
+  names(regressors) <- condnames
+  as.matrix(as.data.frame(regressors))
+  }
+
+plot_design_matrix <- function(X)
+  {
+  matplot(1:nrow(X), X, 
+          type='l', lty=1, col=1:nrow(X))
+  }
+
+```
+
+
+``` {r efficiency, echo=FALSE}
+efficiency <- function(contrast, designMat)
+  # returns the efficiency of a contrast for a given design 
+  # according to Henson (2007), formula 15.4 (from Dale, 1999)
+  {
+  sum(diag(ginv(t(contrast) %*% ginv(crossprod(designMat)) %*% contrast)))
+  }
+
+
+```
+
+
+```{r paradigms, echo=FALSE}
+generate_paradigm_fixed_SOA <- function(ncond, trialpercond,  stimduration, SOA, totalduration)
+  # ncond is the number of different experimental conditions,
+  # stimduration, SOA and totalduration must be expressed in seconds
+  {
+    ntrials <- ncond * trialpercond
+    conditions <- sample(rep(1:ncond,trialpercond))
+    onsets <- (1:ntrials-1)*SOA
+    durations <- rep(stimduration, ntrials)
+    timing <- data.frame(onsets, conditions, durations)
+    timing
+  }
+
+generate_paradigm_fixed_SOA_adding_silences <- function(ncond, trialpercond,  stimduration, SOA, totalduration0)
+  {
+  # we simply add one more condition 'silence' having as many trials as the others,
+  # lengthening the whole duration by 'trialpercond*SOA'
+    timing <- generate_paradigm_fixed_SOA(ncond+1, trialpercond, stimduration, SOA, totalduration0+ trialpercond*SOA)
+  # and delete the references to it (it will be in the implicit baseline)  
+    timing <- subset(timing, conditions != ncond+1)
+    timing
+    }
+
+generate_paradigm_varying_SOA <- function(ncond, trialpercond,  stimduration, SOA, jitter, totalduration)
+  {
+    # first, we computed a fixed SOA design 
+    timing <- generate_paradigm_fixed_SOA(ncond, trialpercond, stimduration, SOA, totalduration)
+    ntrials <- nrow(timing)
+    # introducing some random jittering around '0' between the trials
+    timing$onsets <- abs(timing$onsets+runif(ntrials, min=-jitter/2, max=jitter/2))
+    timing
+  }
+
+generate_paradigm_varying_SOA_null_events  <- function(ncond, trialpercond,  stimduration, SOA, totalduration)
+  {
+    timing <- generate_paradigm_fixed_SOA(ncond, trialpercond, stimduration, SOA, totalduration)
+# insert silences. This will lengthen the whole by trialpercond*SOA
+    totalsilence <- trialpercond*SOA
+    totalduration <- totalduration+totalsilence
+    ntrials <- ncond*trialpercond   
+    silences <- runif(ntrials, 0.2,1.8) * (totalsilence / ntrials)
+    silences <- silences * (totalsilence/sum(silences))
+    timing$onsets <- timing$onsets+cumsum(silences)
+    timing
+  }
+```
+
+```{r simul_fun, echo=FALSE}
+simulations <- function(nsim, beta, listofcontrasts, noise_fun, design_generator, ...)
+  {
+  estimates <- matrix(nrow=nsim, ncol=length(beta))
+  estimatese <- matrix(nrow=nsim, ncol=length(beta))
+  efficiencies <- matrix(nrow=nsim, ncol=length(listofcontrasts))
+  
+  for (i in 1:nsim)
+    {
+      timing <- design_generator(...)
+      X <- create_design_matrix(timing, totalduration)
+      
+      # simulate a time-series 
+      y0 <- X %*% beta
+      y <- y0 + noise_fun(length(y0))
+      
+      # analyse using a linear model
+      m <- summary(lm(y~ X))
+      estimates[i,] <- m$coefficients[-1,1] # get the estimations of the parameters
+      estimatese[i,] <- m$coefficients[-1,2] # and their associated standard errors
+
+      # compute the efficiency of contrasts 
+      for (contrast in 1:length(listofcontrasts)) {
+          efficiencies[i,contrast] <- efficiency(listofcontrasts[[contrast]],X)
+          }
+
+      }
+  # returns the estimates, their s.e. and the efficiencies
+  list(estimates=estimates, 
+       estimatese=estimatese, 
+       efficiencies=efficiencies)
+}
+  
+singlesimul <- function(designMat, beta, listofcontrasts, noise_fun)
+  # given a designMatrix, returns the efficiencies of contrasts, and estimates of beta and their s.e. *for a single simulation*
+  {
+    estimates <- numeric(length(beta))
+    estimatese <- numeric(length(beta))
+    efficiencies <- numeric(length(listofcontrasts))
+    
+    # compute the efficiencies of contrasts 
+    for (contrast in 1:length(listofcontrasts)) {
+      efficiencies[contrast] <- efficiency(listofcontrasts[[contrast]],X)
+    }
+
+    # simulate a time-series 
+    y0 <- designMat %*% beta
+    y <- y0 + noise_fun(length(y0))
+    
+    # analyse it using a linear model
+    m <- summary(lm(y~ X))
+    estimates <- m$coefficients[-1,1] # get the estimations of the parameters
+    estimatese <- m$coefficients[-1,2] # and their associated standard errors
+    
+    # returned value
+    list(estimates=estimates, 
+         estimatese=estimatese, 
+         efficiencies=efficiencies)
+}
+```` 
+
+
+```{r noise}
+normalnoise <- function(npoints) { 5*rnorm(npoints) }
+```
+
+
+
+
+
+Importing designs
+-----------------
+
+### Fixed SOA with empty trials
+
+We load one schedule:
+
+```{r}
+timing <- read.table('fMRI_Order_10.csv', sep=',', col.names=c('onsets','conditions','durations'))
+timing <- subset(timing, conditions<=10)
+plot_paradigm(timing)
+(totalduration <- max(timing$onsets)+10)
+table(timing$conditions)
+
+X <- create_design_matrix(timing, totalduration)
+plot_design_matrix(X)
+```
+
+
+```{r}
+betas <- c(1:5, -(1:5))
+singlesimul(X, betas, list(lin=betas-mean(betas)), normalnoise)
+```
+
+Now, we load all schedules and report, for each, the estimates, their standard errors, and the theoretical efficiency of the contrast c(1:5, -(1:5)).
+
+```{r}
+for (csvfile in Sys.glob('fMRI_Order*.csv'))
+  {
+  timing <- read.table(csvfile, sep=',', col.names=c('onsets','conditions','durations'))
+  print('Totalduration')
+  print(totalduration <- max(timing$onsets)+10)
+  print(table(timing$conditions))
+  timing <- subset(timing, conditions<=10)
+  X <- create_design_matrix(timing, totalduration)
+  betas <- c(1:5, -(1:5))
+  cons <- list(lin=betas-mean(betas),beta1=c(1,rep(0,ncol(X)-1)))
+  o <- singlesimul(X, betas, cons, normalnoise)
+  print('Standard errors of estimates:')
+  print(summary(as.numeric(o$estimatese)))
+  print('Efficiency of linear contrast:')
+  print('Efficiency of contrasts:')
+  for (i in 1:length(cons)) { 
+    print(cons[i])
+    print(o$efficiencies[i])
+    }
+  }
+```
+  
+### sequences created by optseq  
+
+```{r}
+timing <- read.table('optseq/simcomp-001.par', col.names=c('onsets','conditions','durations','weight','condn'))
+totalduration <- max(timing$onsets)+10
+timing <- subset(timing, conditions != 0)
+print(table(timing$conditions))
+hist(diff(timing$onsets))
+plot_paradigm(timing)
+
+X <- create_design_matrix(timing, totalduration)
+plot_design_matrix(X)
+```
+
+```{r}
+for (csvfile in Sys.glob('optseq/simcomp*.par'))
+  {
+  timing <- read.table(csvfile, col.names=c('onsets','conditions','durations','weight','condn'))
+  totalduration <- max(timing$onsets)+10
+  timing <- subset(timing, conditions != 0)
+  print(table(timing$conditions))
+  hist(diff(timing$onsets))
+  X <- create_design_matrix(timing, totalduration)
+  cons <- list(lin=betas-mean(betas),beta1=c(1,rep(0,ncol(X)-1)))
+  o <- singlesimul(X, betas, cons, normalnoise)
+  print('Standard errors of estimates:')
+  print(summary(as.numeric(o$estimatese)))
+  print('Efficiency of contrasts:')
+  for (i in 1:length(cons)) { 
+    print(cons[i]);
+    print(o$efficiencies[i])
+    }
+  }
+```
+  
+  
+Random sequences with no silence
+--------------------------------
+
+```{r}
+ncond <- 10
+trialspercond <-8
+stimduration <- 6
+SOA <- 8
+totalduration <- ncond*trialspercond* SOA +10
+
+for (i in 1:10)
+  {
+  timing <- generate_paradigm_fixed_SOA(ncond, trialspercond, stimduration, SOA, totalduration)
+  X <- create_design_matrix(timing, totalduration)
+  cons <- list(lin=betas-mean(betas),beta1=c(1,rep(0,ncol(X)-1)))
+  o <- singlesimul(X, betas, cons, normalnoise)
+  print('Standard errors of estimates:')
+  print(summary(as.numeric(o$estimatese)))
+  print('Efficiency of contrasts:')
+  for (i in 1:length(cons)) { 
+    print(cons[i]);
+    print(o$efficiencies[i])
+    }
+  }
+```
+

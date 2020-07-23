@@ -1,0 +1,84 @@
+Estimating the effect of number of measurements on detection in a multiple regression framework
+===============================================================================================
+
+```{r}
+proplessthan01 <- function(x) { mean(x<.01) }
+
+```
+
+
+Single-subject simulations
+
+We model 3 types of events, that occur respectively, 20, 15 and 10 times, in a 100 time-series.  
+
+
+
+```{r indiv}
+x1 <- numeric(100)
+x2 <- numeric(100)
+x3 <- numeric(100)
+
+x1[seq(1,100,by=5)] <- 1
+x2[seq(2,100,by=7)] <- 1
+x3[seq(3,100,by=10)] <- 1
+
+plot(x1, col='blue', type='s', ylim=c(0,6), axes=FALSE, bty='l', xlab='time', ylab='')
+axis(1)
+axis(2)
+lines(1.5+ x2, col='red', type='s')
+lines(3+ x3, col='black', type='s')
+legend('topright',c('x1','x2','x3'), lty=1, col=c('blue','red','black'))
+
+sum(x1)
+sum(x2)
+sum(x3)
+
+nsim = 1000
+
+detections <- data.frame(x1=numeric(0), x2=numeric(0), x3=numeric(0))
+
+for (sd in seq(1,5, by=.2))
+  {
+pvals <- data.frame()
+for (i in 1:nsim)
+{
+y <- x1 + x2 +x3 + rnorm(100, sd=sd)  
+m1 <- lm(y ~ x1 + x2 + x3)
+pv <- summary(m1)$coefficients[2:4,4]
+pvals <- rbind(pvals, pv)
+}
+
+detections <- rbind(detections, apply(pvals, 2, proplessthan01))
+}
+
+detections
+
+plot(seq(1,5, by=.2), detections[,1], type='l', col='blue', main='Hit rates in individual analyses', xlab='st.dev. of noise', las=1)
+lines(seq(1,5, by=.2), detections[,3], type='l', col='red')
+```
+
+Group-level
+
+```{r group}
+detections <- data.frame(x1=numeric(0), x2=numeric(0))
+
+
+for (effsize in seq(0, 2, by=0.1))
+{
+  pvals = data.frame(x1=numeric(0), x2=numeric(0))
+  for (i in 1:nsim)
+    { 
+     a <- rnorm(20, mean=effsize,sd=1)
+     b <- rnorm(20, mean=effsize, sd=sqrt(2))
+     pvals <- rbind(pvals, data.frame(x1=t.test(a)$p.value, x2=t.test(b)$p.value))
+    }
+  detections <- rbind(detections, apply(pvals, 2, proplessthan01))
+}
+
+effectsize <- seq(0, 2, by=0.1) 
+plot(effectsize, detections[,1], col='blue', type='l')
+lines(effectsize, detections[,2], col='red')
+
+```
+
+

@@ -1,0 +1,10 @@
+#! /bin/bash
+
+RMDFILE=$1
+MDFILE=${RMDFILE%.Rmd}.md
+HTMLFILE=${RMDFILE%.Rmd}.html
+PDFFILE=${RMDFILE%.Rmd}.pdf
+
+Rscript -e "require(knitr); require(markdown); knit('$RMDFILE', '${MDFILE}'); markdownToHTML('$MDFILE', '$HTMLFILE', options=c('use_xhml'))"
+
+pandoc -s "${HTMLFILE}" -o "${PDFFILE}"
